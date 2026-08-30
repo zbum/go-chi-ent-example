@@ -1,0 +1,10 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# OMC runtime state
+.omc/
+
+# Build output
+bin/
+dist/
