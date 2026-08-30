@@ -8,3 +8,5 @@
 # Build output
 bin/
 dist/
+
+dev.db
