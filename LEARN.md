@@ -20,8 +20,8 @@ status: draft
 - [x] 6. httptest로 핸들러 테스트
 - [x] 7. ent User 스키마
 - [x] 8. 코드 생성과 SQLite 연결
-- [ ] 9. User 생성·목록 API
-- [ ] 10. URL 파라미터로 단건 조회
+- [x] 9. User 생성·목록 API
+- [x] 10. URL 파라미터로 단건 조회
 
 ## 이 글의 약속
 
@@ -302,6 +302,31 @@ func (User) Fields() []ent.Field {
 
 **내가 본 출력.** `ent new User`가 `ent/schema/user.go`와 `ent/generate.go`를 만들었다. `Fields`는 `name`(`NotEmpty`)과 `email`(`Unique`). `Edges`는 아직 `nil`. `go.mod`에 `entgo.io/ent v0.14.6`.
 
+```go
+package schema
+
+import (
+	"entgo.io/ent"
+	"entgo.io/ent/schema/field"
+)
+
+type User struct {
+	ent.Schema
+}
+
+func (User) Fields() []ent.Field {
+	return []ent.Field{
+		field.String("name").NotEmpty(),
+		field.String("email").Unique(),
+	}
+}
+
+func (User) Edges() []ent.Edge {
+	return nil
+}
+```
+
+
 ### 8. 코드 생성과 SQLite 연결
 
 **목표.** `go generate ./ent`로 클라이언트를 만들고, 프로세스 시작 시 SQLite에 연결해 스키마를 적용한다.
@@ -398,6 +423,73 @@ curl -i http://127.0.0.1:3000/v1/users
 
 공식 문서: [ent CRUD](https://entgo.io/docs/crud)
 
+**내가 본 출력.** `newRouter(client *ent.Client)`로 바꿨고 `/v1`에 `POST /users`, `GET /users`를 붙였다. 요청 바디는 패키지 타입 `body`(`json:"name"`, `json:"email"`), 변수 이름은 `createUserRequest`. 처음엔 `map[string]string`과 `body["Name"]`을 썼는데 JSON 키 `name`과 안 맞았다. `*ent.User`를 요청으로 쓰지 않고 입력 struct를 직접 뒀다.
+
+POST `{"name":"manty","email":"manty@example.com"}`는 처음 `200`과 `id`. 같은 이메일 두 번째는 `500` + `UNIQUE constraint failed: users.email`. 409로 바꾸지 않고 500으로 뒀다. `GET /v1/users`는 `[{"id":1,"name":"manty","email":"manty@example.com"}, ...]`. 나중에 `Encode` 앞에 `w.WriteHeader(http.StatusCreated)`를 넣었고, 그다음 POST는 `201 Created`가 됐다.
+
+`newRouter` 시그니처를 바꾼 뒤 `main_test.go`의 `newRouter()`가 컴파일되지 않았다. `newRouter(nil)`로 `TestHelloJSON`을 통과시켰다. `ok go-chi-ent-example 0.552s`.
+
+디코드 에러를 처음엔 `StatusBadGateway`(502)로 보냈다. 잘못된 `{` POST는 서버를 재기동하기 전엔 예전 코드라 `500` + `validator failed for field "User.name"`이 나왔다. `StatusBadRequest`로 고치고 `go run .`를 다시 켠 뒤:
+
+```
+HTTP/1.1 400 Bad Request
+unexpected EOF
+```
+
+요청용 struct는 직접 뒀다. `*ent.User`를 바디로 쓰지 않는다.
+
+```go
+type body struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func createUser(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var createUserRequest body
+		err := json.NewDecoder(r.Body).Decode(&createUserRequest)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		u, err := client.User.Create().
+			SetName(createUserRequest.Name).
+			SetEmail(createUserRequest.Email).
+			Save(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(u)
+	}
+}
+
+func listUsers(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		users, err := client.User.Query().All(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		json.NewEncoder(w).Encode(users)
+	}
+}
+```
+
+`/v1` 그룹:
+
+```go
+r.Post("/users", createUser(client))
+r.Get("/users", listUsers(client))
+```
+
+
 ### 10. URL 파라미터로 단건 조회
 
 **목표.** `GET /v1/users/{id}`로 한 명을 조회한다. 없으면 404.
@@ -431,12 +523,268 @@ curl -i http://127.0.0.1:3000/v1/users/9999
 
 공식 문서: [chi URLParam](https://pkg.go.dev/github.com/go-chi/chi/v5#URLParam), [ent IsNotFound](https://pkg.go.dev/entgo.io/ent#IsNotFound)
 
+**내가 본 출력.** `GET /v1/users/{id}`를 `getUser(client)`로 붙였다. `chi.URLParam(r, "id")`를 `strconv.Atoi`로 바꾸고 `client.User.Get(r.Context(), id)`를 호출한다. `ent.IsNotFound`면 404.
+
+```
+GET /v1/users/1     → 200  {"id":1,"name":"manty","email":"manty@example.com"}
+GET /v1/users/9999  → 404  ent: user not found
+GET /v1/users/abc   → 400  strconv.Atoi: parsing "abc": invalid syntax
+```
+
+`TestGetUser`는 sqlite memory(`file:ent?mode=memory&cache=shared&_fk=1`)를 열고 `Schema.Create(t.Context())`한 뒤 `GET /v1/users/99`가 404인지 단언한다. `TestHelloJSON`은 그대로 `newRouter(nil)`. `go test -v`에서 `TestGetUser` PASS, 로그에 `404 20B`. `ok go-chi-ent-example 0.292s`.
+
+```go
+func getUser(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, err := client.User.Get(r.Context(), id)
+		if err != nil {
+			if ent.IsNotFound(err) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Add("Content-Type", "application/json; charset=UTF-8")
+		json.NewEncoder(w).Encode(user)
+	}
+}
+```
+
+```go
+func TestGetUser(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/users/99", nil)
+	rec := httptest.NewRecorder()
+
+	client, err := ent.Open("sqlite3", "file:ent?mode=memory&cache=shared&_fk=1")
+	if err != nil {
+		t.Fatalf("fail to create sqlite client %v \n", err)
+	}
+	if err := client.Schema.Create(t.Context()); err != nil {
+		t.Fatalf("fail to create schema %v \n", err)
+	}
+
+	newRouter(client).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+```
+
+
 ## 이 실습에서 다루지 않는 것
 
 인증, Postgres, versioned migration(Atlas), 엔티티 관계(edge), 트랜잭션, Docker. 10단계를 손으로 끝낸 뒤에 고른다. 관계를 다음 주제로 삼는다면 ent getting started의 `Car` / `Group` edge부터 보면 된다.
 
+## 남긴 코드
+
+생성기 출력(`ent/client.go`, `ent/user.go` 등)은 생략한다. `go generate ./ent`로 만든다. 아래는 10단계를 끝낸 시점의 파일이다.
+
+엔드포인트:
+
+| 방법 | 경로 | 응답 |
+| --- | --- | --- |
+| GET | `/` | `welcome` |
+| GET | `/health` | `ok` |
+| GET | `/v1/ping` | `pong` |
+| GET | `/v1/hello` | `{"message":"Hello, World!"}` |
+| POST | `/v1/users` | `201` 사용자 JSON |
+| GET | `/v1/users` | 사용자 배열 |
+| GET | `/v1/users/{id}` | 한 명, 없으면 `404`, id가 숫자가 아니면 `400` |
+
+`main.go`:
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"go-chi-ent-example/ent"
+	"log"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+func newRouter(client *ent.Client) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("welcome"))
+	})
+
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	})
+
+	r.Route("/v1", func(r chi.Router) {
+		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("pong"))
+		})
+		r.Get("/hello", helloJSON)
+
+		r.Post("/users", createUser(client))
+		r.Get("/users", listUsers(client))
+		r.Get("/users/{id}", getUser(client))
+	})
+	return r
+}
+
+func main() {
+	client, err := ent.Open("sqlite3", "file:dev.db?_fk=1")
+	if err != nil {
+		log.Fatalf("failed opening connection to sqlite: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Schema.Create(context.Background()); err != nil {
+		log.Fatalf("failed creating schema resources: %v", err)
+	}
+
+	http.ListenAndServe(":3000", newRouter(client))
+}
+
+func helloJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": "Hello, World!",
+	})
+}
+
+type body struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func createUser(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var createUserRequest body
+		err := json.NewDecoder(r.Body).Decode(&createUserRequest)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		u, err := client.User.Create().
+			SetName(createUserRequest.Name).
+			SetEmail(createUserRequest.Email).
+			Save(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(u)
+	}
+}
+
+func listUsers(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		users, err := client.User.Query().All(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		json.NewEncoder(w).Encode(users)
+	}
+}
+
+func getUser(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, err := client.User.Get(r.Context(), id)
+		if err != nil {
+			if ent.IsNotFound(err) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Add("Content-Type", "application/json; charset=UTF-8")
+		json.NewEncoder(w).Encode(user)
+	}
+}
+```
+
+`main_test.go`:
+
+```go
+package main
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"go-chi-ent-example/ent"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+func TestHelloJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/hello", nil)
+	rec := httptest.NewRecorder()
+	newRouter(nil).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != `{"message":"Hello, World!"}` {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestGetUser(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/users/99", nil)
+	rec := httptest.NewRecorder()
+
+	client, err := ent.Open("sqlite3", "file:ent?mode=memory&cache=shared&_fk=1")
+	if err != nil {
+		t.Fatalf("fail to create sqlite client %v \n", err)
+	}
+	if err := client.Schema.Create(t.Context()); err != nil {
+		t.Fatalf("fail to create schema %v \n", err)
+	}
+
+	newRouter(client).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+```
+
 ## 참고
 
+- 이 글의 저장소: [github.com/zbum/go-chi-ent-example](https://github.com/zbum/go-chi-ent-example)
 - [chi](https://github.com/go-chi/chi)
 - [ent getting started](https://entgo.io/docs/getting-started)
 - [Go modules](https://go.dev/doc/modules/managing-dependencies)
