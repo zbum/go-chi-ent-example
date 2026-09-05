@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -36,6 +37,10 @@ func newRouter(client *ent.Client) http.Handler {
 		r.Post("/users", createUser(client))
 		r.Get("/users", listUsers(client))
 		r.Get("/users/{id}", getUser(client))
+		r.Get("/users/{id}/cars", listCars(client))
+		r.Post("/users/{id}/cars", createCar(client))
+
+		r.Post("/users-with-car", createUserWithCar(client))
 	})
 	return r
 }
@@ -62,14 +67,19 @@ func helloJSON(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type body struct {
+type UserCreateRequest struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
 
+type UserCreateWithCarRequest struct {
+	UserCreateRequest
+	Model string `json:"model"`
+}
+
 func createUser(client *ent.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var createUserRequest body
+		var createUserRequest UserCreateRequest
 		err := json.NewDecoder(r.Body).Decode(&createUserRequest)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -82,6 +92,55 @@ func createUser(client *ent.Client) http.HandlerFunc {
 			Save(r.Context())
 
 		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(u)
+	}
+}
+
+func createUserWithCar(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var createUserWithCarRequest UserCreateWithCarRequest
+		err := json.NewDecoder(r.Body).Decode(&createUserWithCarRequest)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		tx, err := client.Tx(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		u, err := tx.User.Create().
+			SetName(createUserWithCarRequest.Name).
+			SetEmail(createUserWithCarRequest.Email).
+			Save(r.Context())
+
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Car.Create().
+			SetModel(createUserWithCarRequest.Model).
+			SetRegisteredAt(time.Now()).
+			SetOwner(u).
+			Save(r.Context())
+
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -125,5 +184,71 @@ func getUser(client *ent.Client) http.HandlerFunc {
 
 		w.Header().Add("Content-Type", "application/json; charset=UTF-8")
 		json.NewEncoder(w).Encode(user)
+	}
+}
+
+type CarCreateRequest struct {
+	Model        string    `json:"model"`
+	RegisteredAt time.Time `json:"registered_at"`
+}
+
+func createCar(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var createCarRequest CarCreateRequest
+		err = json.NewDecoder(r.Body).Decode(&createCarRequest)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		car, err := client.Car.Create().
+			SetModel(createCarRequest.Model).
+			SetRegisteredAt(createCarRequest.RegisteredAt).
+			SetOwnerID(id).
+			Save(r.Context())
+
+		if ent.IsNotFound(err) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		w.Header().Add("Content-Type", "application/json; charset=UTF-8")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(car)
+	}
+}
+
+func listCars(client *ent.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		u, err := client.User.Get(r.Context(), id)
+		if err != nil {
+			if ent.IsNotFound(err) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cars, err := u.QueryCars().All(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Add("Content-Type", "application/json; charset=UTF-8")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(cars)
 	}
 }

@@ -784,6 +784,7 @@ func TestGetUser(t *testing.T) {
 
 ## 참고
 
+- 다음 편: [손으로 익히는 ent — edge와 트랜잭션](./LEARN2.md)
 - 이 글의 저장소: [github.com/zbum/go-chi-ent-example](https://github.com/zbum/go-chi-ent-example)
 - [chi](https://github.com/go-chi/chi)
 - [ent getting started](https://entgo.io/docs/getting-started)

@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go-chi-ent-example/ent/car"
+	"go-chi-ent-example/ent/group"
 	"go-chi-ent-example/ent/user"
 	"reflect"
 	"sync"
@@ -73,7 +75,9 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			user.Table: user.ValidColumn,
+			car.Table:   car.ValidColumn,
+			group.Table: group.ValidColumn,
+			user.Table:  user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

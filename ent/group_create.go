@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go-chi-ent-example/ent/car"
 	"go-chi-ent-example/ent/group"
 	"go-chi-ent-example/ent/user"
 
@@ -14,67 +13,46 @@ import (
 	"entgo.io/ent/schema/field"
 )
 
-// UserCreate is the builder for creating a User entity.
-type UserCreate struct {
+// GroupCreate is the builder for creating a Group entity.
+type GroupCreate struct {
 	config
-	mutation *UserMutation
+	mutation *GroupMutation
 	hooks    []Hook
 }
 
 // SetName sets the "name" field.
-func (_c *UserCreate) SetName(v string) *UserCreate {
+func (_c *GroupCreate) SetName(v string) *GroupCreate {
 	_c.mutation.SetName(v)
 	return _c
 }
 
-// SetEmail sets the "email" field.
-func (_c *UserCreate) SetEmail(v string) *UserCreate {
-	_c.mutation.SetEmail(v)
+// AddUserIDs adds the "users" edge to the User entity by IDs.
+func (_c *GroupCreate) AddUserIDs(ids ...int) *GroupCreate {
+	_c.mutation.AddUserIDs(ids...)
 	return _c
 }
 
-// AddCarIDs adds the "cars" edge to the Car entity by IDs.
-func (_c *UserCreate) AddCarIDs(ids ...int) *UserCreate {
-	_c.mutation.AddCarIDs(ids...)
-	return _c
-}
-
-// AddCars adds the "cars" edges to the Car entity.
-func (_c *UserCreate) AddCars(v ...*Car) *UserCreate {
+// AddUsers adds the "users" edges to the User entity.
+func (_c *GroupCreate) AddUsers(v ...*User) *GroupCreate {
 	ids := make([]int, len(v))
 	for i := range v {
 		ids[i] = v[i].ID
 	}
-	return _c.AddCarIDs(ids...)
+	return _c.AddUserIDs(ids...)
 }
 
-// AddGroupIDs adds the "Groups" edge to the Group entity by IDs.
-func (_c *UserCreate) AddGroupIDs(ids ...int) *UserCreate {
-	_c.mutation.AddGroupIDs(ids...)
-	return _c
-}
-
-// AddGroups adds the "Groups" edges to the Group entity.
-func (_c *UserCreate) AddGroups(v ...*Group) *UserCreate {
-	ids := make([]int, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _c.AddGroupIDs(ids...)
-}
-
-// Mutation returns the UserMutation object of the builder.
-func (_c *UserCreate) Mutation() *UserMutation {
+// Mutation returns the GroupMutation object of the builder.
+func (_c *GroupCreate) Mutation() *GroupMutation {
 	return _c.mutation
 }
 
-// Save creates the User in the database.
-func (_c *UserCreate) Save(ctx context.Context) (*User, error) {
+// Save creates the Group in the database.
+func (_c *GroupCreate) Save(ctx context.Context) (*Group, error) {
 	return withHooks(ctx, _c.sqlSave, _c.mutation, _c.hooks)
 }
 
 // SaveX calls Save and panics if Save returns an error.
-func (_c *UserCreate) SaveX(ctx context.Context) *User {
+func (_c *GroupCreate) SaveX(ctx context.Context) *Group {
 	v, err := _c.Save(ctx)
 	if err != nil {
 		panic(err)
@@ -83,35 +61,32 @@ func (_c *UserCreate) SaveX(ctx context.Context) *User {
 }
 
 // Exec executes the query.
-func (_c *UserCreate) Exec(ctx context.Context) error {
+func (_c *GroupCreate) Exec(ctx context.Context) error {
 	_, err := _c.Save(ctx)
 	return err
 }
 
 // ExecX is like Exec, but panics if an error occurs.
-func (_c *UserCreate) ExecX(ctx context.Context) {
+func (_c *GroupCreate) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
 		panic(err)
 	}
 }
 
 // check runs all checks and user-defined validators on the builder.
-func (_c *UserCreate) check() error {
+func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.Name(); !ok {
-		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "User.name"`)}
+		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Group.name"`)}
 	}
 	if v, ok := _c.mutation.Name(); ok {
-		if err := user.NameValidator(v); err != nil {
-			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "User.name": %w`, err)}
+		if err := group.NameValidator(v); err != nil {
+			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Group.name": %w`, err)}
 		}
-	}
-	if _, ok := _c.mutation.Email(); !ok {
-		return &ValidationError{Name: "email", err: errors.New(`ent: missing required field "User.email"`)}
 	}
 	return nil
 }
 
-func (_c *UserCreate) sqlSave(ctx context.Context) (*User, error) {
+func (_c *GroupCreate) sqlSave(ctx context.Context) (*Group, error) {
 	if err := _c.check(); err != nil {
 		return nil, err
 	}
@@ -129,44 +104,24 @@ func (_c *UserCreate) sqlSave(ctx context.Context) (*User, error) {
 	return _node, nil
 }
 
-func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
+func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	var (
-		_node = &User{config: _c.config}
-		_spec = sqlgraph.NewCreateSpec(user.Table, sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt))
+		_node = &Group{config: _c.config}
+		_spec = sqlgraph.NewCreateSpec(group.Table, sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt))
 	)
 	if value, ok := _c.mutation.Name(); ok {
-		_spec.SetField(user.FieldName, field.TypeString, value)
+		_spec.SetField(group.FieldName, field.TypeString, value)
 		_node.Name = value
 	}
-	if value, ok := _c.mutation.Email(); ok {
-		_spec.SetField(user.FieldEmail, field.TypeString, value)
-		_node.Email = value
-	}
-	if nodes := _c.mutation.CarsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.CarsTable,
-			Columns: []string{user.CarsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(car.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.GroupsIDs(); len(nodes) > 0 {
+	if nodes := _c.mutation.UsersIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
-			Inverse: true,
-			Table:   user.GroupsTable,
-			Columns: user.GroupsPrimaryKey,
+			Inverse: false,
+			Table:   group.UsersTable,
+			Columns: group.UsersPrimaryKey,
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -177,26 +132,26 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	return _node, _spec
 }
 
-// UserCreateBulk is the builder for creating many User entities in bulk.
-type UserCreateBulk struct {
+// GroupCreateBulk is the builder for creating many Group entities in bulk.
+type GroupCreateBulk struct {
 	config
 	err      error
-	builders []*UserCreate
+	builders []*GroupCreate
 }
 
-// Save creates the User entities in the database.
-func (_c *UserCreateBulk) Save(ctx context.Context) ([]*User, error) {
+// Save creates the Group entities in the database.
+func (_c *GroupCreateBulk) Save(ctx context.Context) ([]*Group, error) {
 	if _c.err != nil {
 		return nil, _c.err
 	}
 	specs := make([]*sqlgraph.CreateSpec, len(_c.builders))
-	nodes := make([]*User, len(_c.builders))
+	nodes := make([]*Group, len(_c.builders))
 	mutators := make([]Mutator, len(_c.builders))
 	for i := range _c.builders {
 		func(i int, root context.Context) {
 			builder := _c.builders[i]
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
-				mutation, ok := m.(*UserMutation)
+				mutation, ok := m.(*GroupMutation)
 				if !ok {
 					return nil, fmt.Errorf("unexpected mutation type %T", m)
 				}
@@ -243,7 +198,7 @@ func (_c *UserCreateBulk) Save(ctx context.Context) ([]*User, error) {
 }
 
 // SaveX is like Save, but panics if an error occurs.
-func (_c *UserCreateBulk) SaveX(ctx context.Context) []*User {
+func (_c *GroupCreateBulk) SaveX(ctx context.Context) []*Group {
 	v, err := _c.Save(ctx)
 	if err != nil {
 		panic(err)
@@ -252,13 +207,13 @@ func (_c *UserCreateBulk) SaveX(ctx context.Context) []*User {
 }
 
 // Exec executes the query.
-func (_c *UserCreateBulk) Exec(ctx context.Context) error {
+func (_c *GroupCreateBulk) Exec(ctx context.Context) error {
 	_, err := _c.Save(ctx)
 	return err
 }
 
 // ExecX is like Exec, but panics if an error occurs.
-func (_c *UserCreateBulk) ExecX(ctx context.Context) {
+func (_c *GroupCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
 		panic(err)
 	}

@@ -3,6 +3,8 @@
 package ent
 
 import (
+	"go-chi-ent-example/ent/car"
+	"go-chi-ent-example/ent/group"
 	"go-chi-ent-example/ent/schema"
 	"go-chi-ent-example/ent/user"
 )
@@ -11,6 +13,18 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	carFields := schema.Car{}.Fields()
+	_ = carFields
+	// carDescModel is the schema descriptor for model field.
+	carDescModel := carFields[0].Descriptor()
+	// car.ModelValidator is a validator for the "model" field. It is called by the builders before save.
+	car.ModelValidator = carDescModel.Validators[0].(func(string) error)
+	groupFields := schema.Group{}.Fields()
+	_ = groupFields
+	// groupDescName is the schema descriptor for name field.
+	groupDescName := groupFields[0].Descriptor()
+	// group.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	group.NameValidator = groupDescName.Validators[0].(func(string) error)
 	userFields := schema.User{}.Fields()
 	_ = userFields
 	// userDescName is the schema descriptor for name field.
